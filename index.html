@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Candlestick Forecast Animation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 20px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .chart-container {
+      width: 100%;
+      height: 400px;
+      position: relative;
+      margin-top: 20px;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
+    .controls {
+      margin: 20px 0;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 15px;
+    }
+    label {
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 10px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .progress {
+      height: 100%;
+      background-color: #4CAF50;
+      width: 0%;
+      transition: width 0.2s;
+    }
+    .legend {
+      display: flex;
+      gap: 20px;
+      margin-top: 10px;
+      justify-content: center;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .legend-color {
+      width: 20px;
+      height: 10px;
+    }
+    .tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 100;
+      font-size: 12px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Candlestick Forecast Animation</h1>
+    
+    <div class="input-group">
+      <label for="historical-data">Historical Candlestick Data (JSON format):</label>
+      <textarea id="historical-data" placeholder='[{"date":"2023-01-01", "open":150, "high":155, "low":148, "close":152}, ...]'></textarea>
+    </div>
+    
+    <div class="input-group">
+      <label for="forecast-data">Forecast Candlestick Data (JSON format):</label>
+      <textarea id="forecast-data" placeholder='[{"date":"2023-01-10", "open":153, "high":158, "low":151, "close":156}, ...]'></textarea>
+    </div>
+    
+    <div class="controls">
+      <button id="load-sample">Load Sample Data</button>
+      <button id="visualize">Visualize Data</button>
+      <button id="animate" disabled>Start Animation</button>
+      <button id="reset" disabled>Reset</button>
+    </div>
+    
+    <div class="tooltip" id="tooltip"></div>
+    <div class="chart-container">
+      <canvas id="chart"></canvas>
+    </div>
+    
+    <div class="progress-bar">
+      <div class="progress" id="progress"></div>
+    </div>
+    
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #26a69a;"></div>
+        <span>Bullish (Close > Open)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #ef5350;"></div>
+        <span>Bearish (Close < Open)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: rgba(0, 0, 255, 0.2);"></div>
+        <span>Forecast Area</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // DOM elements
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+    const historicalDataInput = document.getElementById('historical-data');
+    const forecastDataInput = document.getElementById('forecast-data');
+    const visualizeBtn = document.getElementById('visualize');
+    const animateBtn = document.getElementById('animate');
+    const resetBtn = document.getElementById('reset');
+    const loadSampleBtn = document.getElementById('load-sample');
+    const progressBar = document.getElementById('progress');
+    const tooltip = document.getElementById('tooltip');
+    
+    // Data and state
+    let historicalData = [];
+    let forecastData = [];
+    let currentData = [];
+    let animationFrameId;
+    let animationProgress = 0;
+    let isAnimating = false;
+    let paddingTop = 50;
+    let paddingRight = 50;
+    let paddingBottom = 50;
+    let paddingLeft = 50;
+    
+    // Sample data
+    const sampleHistoricalData = [
+      { date: "2023-01-01", open: 150, high: 155, low: 148, close: 152 },
+      { date: "2023-01-02", open: 152, high: 158, low: 150, close: 157 },
+      { date: "2023-01-03", open: 157, high: 160, low: 154, close: 155 },
+      { date: "2023-01-04", open: 155, high: 156, low: 150, close: 151 },
+      { date: "2023-01-05", open: 151, high: 154, low: 149, close: 153 },
+      { date: "2023-01-06", open: 153, high: 158, low: 152, close: 156 },
+      { date: "2023-01-07", open: 156, high: 160, low: 155, close: 159 },
+      { date: "2023-01-08", open: 159, high: 165, low: 158, close: 163 },
+      { date: "2023-01-09", open: 163, high: 168, low: 161, close: 162 },
+      { date: "2023-01-10", open: 162, high: 167, low: 160, close: 165 }
+    ];
+    
+    const sampleForecastData = [
+      { date: "2023-01-11", open: 165, high: 170, low: 164, close: 169 },
+      { date: "2023-01-12", open: 169, high: 175, low: 167, close: 173 },
+      { date: "2023-01-13", open: 173, high: 178, low: 171, close: 175 },
+      { date: "2023-01-14", open: 175, high: 180, low: 173, close: 178 },
+      { date: "2023-01-15", open: 178, high: 182, low: 175, close: 180 }
+    ];
+
+    // Load sample data
+    loadSampleBtn.addEventListener('click', () => {
+      historicalDataInput.value = JSON.stringify(sampleHistoricalData, null, 2);
+      forecastDataInput.value = JSON.stringify(sampleForecastData, null, 2);
+    });
+    
+    // Visualize data
+    visualizeBtn.addEventListener('click', () => {
+      try {
+        historicalData = JSON.parse(historicalDataInput.value);
+        forecastData = JSON.parse(forecastDataInput.value);
+        
+        if (!Array.isArray(historicalData) || !Array.isArray(forecastData)) {
+          throw new Error('Data must be arrays');
+        }
+        
+        // Initialize with historical data
+        currentData = [...historicalData];
+        
+        // Render initial chart
+        drawChart(currentData, forecastData);
+        
+        // Enable animation button
+        animateBtn.disabled = false;
+        resetBtn.disabled = false;
+      } catch (error) {
+        alert('Error parsing data: ' + error.message);
+      }
+    });
+    
+    // Start animation
+    animateBtn.addEventListener('click', () => {
+      if (isAnimating) {
+        pauseAnimation();
+        animateBtn.textContent = 'Resume Animation';
+      } else {
+        startAnimation();
+        animateBtn.textContent = 'Pause Animation';
+      }
+    });
+    
+    // Reset animation
+    resetBtn.addEventListener('click', () => {
+      resetAnimation();
+      animateBtn.textContent = 'Start Animation';
+      animateBtn.disabled = false;
+    });
+    
+    // Start animation
+    function startAnimation() {
+      if (!isAnimating) {
+        isAnimating = true;
+        animate();
+      }
+    }
+    
+    // Pause animation
+    function pauseAnimation() {
+      isAnimating = false;
+      cancelAnimationFrame(animationFrameId);
+    }
+    
+    // Reset animation
+    function resetAnimation() {
+      pauseAnimation();
+      animationProgress = 0;
+      progressBar.style.width = '0%';
+      currentData = [...historicalData];
+      drawChart(currentData, forecastData);
+    }
+    
+    // Animation function
+    function animate() {
+      if (!isAnimating) return;
+      
+      // Increment animation progress
+      animationProgress += 0.01;
+      if (animationProgress > 1) {
+        animationProgress = 1;
+        isAnimating = false;
+        animateBtn.textContent = 'Start Animation';
+      }
+      
+      // Update progress bar
+      progressBar.style.width = `${animationProgress * 100}%`;
+      
+      // Interpolate data
+      currentData = interpolateData(historicalData, forecastData, animationProgress);
+      
+      // Draw chart
+      drawChart(currentData, forecastData);
+      
+      // Continue animation
+      if (isAnimating) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    }
+    
+    // Interpolate between historical and forecast data
+    function interpolateData(historical, forecast, progress) {
+      if (progress <= 0) return [...historical];
+      if (progress >= 1) return [...historical, ...forecast];
+      
+      const blendedData = [...historical];
+      
+      // Add partially interpolated forecast data
+      const forecastsToAdd = Math.floor(forecast.length * progress);
+      for (let i = 0; i < forecastsToAdd; i++) {
+        blendedData.push(forecast[i]);
+      }
+      
+      // If there's a partial candle to add
+      if (forecastsToAdd < forecast.length) {
+        const partialProgress = (progress * forecast.length) % 1;
+        if (partialProgress > 0) {
+          const nextForecast = forecast[forecastsToAdd];
+          const partialCandle = {
+            date: nextForecast.date,
+            open: nextForecast.open,
+            high: lerp(nextForecast.open, nextForecast.high, partialProgress),
+            low: lerp(nextForecast.open, nextForecast.low, partialProgress),
+            close: lerp(nextForecast.open, nextForecast.close, partialProgress)
+          };
+          blendedData.push(partialCandle);
+        }
+      }
+      
+      return blendedData;
+    }
+    
+    // Linear interpolation helper
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+    
+    // Draw chart function
+    function drawChart(data, forecastData) {
+      // Clear canvas and set dimensions
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      canvas.width = width;
+      canvas.height = height;
+      
+      const chartWidth = width - paddingLeft - paddingRight;
+      const chartHeight = height - paddingTop - paddingBottom;
+      
+      // Find min and max values
+      let minVal = Infinity;
+      let maxVal = -Infinity;
+      
+      // Check all data including forecast for scaling
+      const allData = [...data, ...forecastData];
+      allData.forEach(candle => {
+        minVal = Math.min(minVal, candle.low);
+        maxVal = Math.max(maxVal, candle.high);
+      });
+      
+      // Add some padding to min/max
+      const valueRange = maxVal - minVal;
+      minVal -= valueRange * 0.05;
+      maxVal += valueRange * 0.05;
+      
+      // Calculate candlestick width
+      const candleWidth = chartWidth / (allData.length * 1.5);
+      const spacing = candleWidth / 2;
+      
+      // Draw background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Draw chart area
+      ctx.fillStyle = '#f5f5f5';
+      ctx.fillRect(paddingLeft, paddingTop, chartWidth, chartHeight);
+      
+      // Draw forecast area background
+      const forecastStartX = paddingLeft + (data.length - forecastData.length) * (candleWidth + spacing);
+      ctx.fillStyle = 'rgba(0, 0, 255, 0.1)';
+      ctx.fillRect(forecastStartX, paddingTop, chartWidth - forecastStartX + paddingRight, chartHeight);
+      
+      // Draw grid lines
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      
+      // Horizontal grid lines
+      const numGridLines = 5;
+      for (let i = 0; i <= numGridLines; i++) {
+        const y = paddingTop + (chartHeight / numGridLines) * i;
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, y);
+        ctx.lineTo(paddingLeft + chartWidth, y);
+        ctx.stroke();
+        
+        // Draw y-axis labels
+        const value = maxVal - (i / numGridLines) * (maxVal - minVal);
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'right';
+        ctx.fillText(value.toFixed(2), paddingLeft - 10, y + 5);
+      }
+      
+      // Vertical grid lines (date lines)
+      const dateStep = Math.max(1, Math.floor(allData.length / 10));
+      for (let i = 0; i < allData.length; i += dateStep) {
+        const x = paddingLeft + i * (candleWidth + spacing);
+        ctx.beginPath();
+        ctx.moveTo(x, paddingTop);
+        ctx.lineTo(x, paddingTop + chartHeight);
+        ctx.stroke();
+        
+        // Draw x-axis labels
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'center';
+        ctx.fillText(allData[i].date.split('-').slice(1).join('/'), x, paddingTop + chartHeight + 20);
+      }
+      
+      // Draw candles
+      data.forEach((candle, index) => {
+        const x = paddingLeft + index * (candleWidth + spacing);
+        
+        // Calculate y-positions
+        const openY = paddingTop + chartHeight - ((candle.open - minVal) / (maxVal - minVal)) * chartHeight;
+        const closeY = paddingTop + chartHeight - ((candle.close - minVal) / (maxVal - minVal)) * chartHeight;
+        const highY = paddingTop + chartHeight - ((candle.high - minVal) / (maxVal - minVal)) * chartHeight;
+        const lowY = paddingTop + chartHeight - ((candle.low - minVal) / (maxVal - minVal)) * chartHeight;
+        
+        // Draw candle wick
+        ctx.beginPath();
+        ctx.moveTo(x + candleWidth / 2, highY);
+        ctx.lineTo(x + candleWidth / 2, lowY);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        // Draw candle body
+        const isBullish = candle.close >= candle.open;
+        ctx.fillStyle = isBullish ? '#26a69a' : '#ef5350';
+        
+        const candleBodyTop = isBullish ? closeY : openY;
+        const candleBodyHeight = Math.abs(openY - closeY);
+        
+        ctx.fillRect(x, candleBodyTop, candleWidth, candleBodyHeight);
+        
+        // Draw border
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, candleBodyTop, candleWidth, candleBodyHeight);
+        
+        // Determine if this candle is part of the forecast
+        const isHistorical = index < historicalData.length;
+        
+        // Add visual indicator for forecast candles
+        if (!isHistorical) {
+          ctx.strokeStyle = 'blue';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, candleBodyTop, candleWidth, candleBodyHeight);
+        }
+      });
+      
+      // Draw forecast separator line
+      if (historicalData.length > 0) {
+        const sepX = paddingLeft + historicalData.length * (candleWidth + spacing) - spacing/2;
+        ctx.beginPath();
+        ctx.moveTo(sepX, paddingTop);
+        ctx.lineTo(sepX, paddingTop + chartHeight);
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Add "Forecast starts" label
+        ctx.fillStyle = 'blue';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText('Forecast', sepX, paddingTop - 10);
+      }
+    }
+    
+    // Handle mousemove for tooltip
+    canvas.addEventListener('mousemove', (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
+      
+      // Check if mouse is in chart area
+      if (mouseX < paddingLeft || mouseX > canvas.width - paddingRight || 
+          mouseY < paddingTop || mouseY > canvas.height - paddingBottom) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      
+      const chartWidth = canvas.width - paddingLeft - paddingRight;
+      const allData = [...historicalData, ...forecastData];
+      const candleWidth = chartWidth / (allData.length * 1.5);
+      const spacing = candleWidth / 2;
+      
+      // Find candle under mouse
+      const candleIndex = Math.floor((mouseX - paddingLeft) / (candleWidth + spacing));
+      if (candleIndex >= 0 && candleIndex < currentData.length) {
+        const candle = currentData[candleIndex];
+        
+        // Show tooltip
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${event.clientX + 10}px`;
+        tooltip.style.top = `${event.clientY + 10}px`;
+        
+        // Format date
+        const dateObj = new Date(candle.date);
+        const formattedDate = dateObj.toLocaleDateString();
+        
+        // Determine if this candle is part of the forecast
+        const isHistorical = candleIndex < historicalData.length;
+        const type = isHistorical ? 'Historical' : 'Forecast';
+        
+        tooltip.innerHTML = `
+          <strong>${formattedDate} (${type})</strong><br>
+          Open: ${candle.open.toFixed(2)}<br>
+          High: ${candle.high.toFixed(2)}<br>
+          Low: ${candle.low.toFixed(2)}<br>
+          Close: ${candle.close.toFixed(2)}
+        `;
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+    
+    // Hide tooltip when mouse leaves canvas
+    canvas.addEventListener('mouseleave', () => {
+      tooltip.style.display = 'none';
+    });
+    
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      if (currentData.length > 0) {
+        drawChart(currentData, forecastData);
+      }
+    });
+    
+    // Initialize canvas
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    ctx.scale(dpr, dpr);
+  </script>
+</body>
+</html>
